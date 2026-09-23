@@ -256,6 +256,8 @@ public class Configs implements IConfigHandler
         public static final ConfigBoolean       IGNORE_EXISTING_BLOCKS              = new ConfigBoolean("ignoreExistingBlocks", false).apply(VISUALS_KEY);
         public static final ConfigStringList    IGNORABLE_EXISTING_BLOCKS           = new ConfigStringList("ignorableExistingBlocks", ImmutableList.of()).apply(VISUALS_KEY);
         public static final ConfigBoolean       IGNORE_CROP_AGE                     = new ConfigBoolean("ignoreCropAge", false).apply(VISUALS_KEY);
+        public static final ConfigStringList    HIDDEN_SCHEMATIC_BLOCKS             = new ConfigStringList("hiddenSchematicBlocks", ImmutableList.of()).apply(VISUALS_KEY);
+        public static final ConfigStringList    HIDDEN_SCHEMATIC_ENTITIES           = new ConfigStringList("hiddenSchematicEntityTypes", ImmutableList.of()).apply(VISUALS_KEY);
         public static final ConfigBooleanHotkeyed OVERLAY_REDUCED_INNER_SIDES       = new ConfigBooleanHotkeyed("overlayReducedInnerSides", false, "").apply(VISUALS_KEY);
         public static final ConfigDouble        PLACEMENT_BOX_SIDE_ALPHA            = new ConfigDouble( "placementBoxSideAlpha", 0.2, 0, 1).apply(VISUALS_KEY);
         public static final ConfigBooleanHotkeyed RENDER_AO_MODERN_ENABLE           = new ConfigBooleanHotkeyed("renderAOModernEnable", false, "").apply(VISUALS_KEY);
@@ -302,6 +304,8 @@ public class Configs implements IConfigHandler
                 IGNORE_EXISTING_BLOCKS,
                 IGNORABLE_EXISTING_BLOCKS,
                 IGNORE_CROP_AGE,
+                HIDDEN_SCHEMATIC_BLOCKS,
+                HIDDEN_SCHEMATIC_ENTITIES,
                 OVERLAY_REDUCED_INNER_SIDES,
                 RENDER_AO_MODERN_ENABLE,
                 RENDER_AREA_SELECTION_BOX_SIDES,
