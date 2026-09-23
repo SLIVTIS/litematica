@@ -21,12 +21,15 @@ import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 import net.minecraft.world.level.material.FluidState;
 
+import fi.dy.masa.litematica.world.WorldSchematic;
+
 public class ChunkCacheSchematic implements BlockAndTintGetter, LightChunkGetter
 {
     private static final BlockState AIR = Blocks.AIR.defaultBlockState();
 
     protected final Level world;
     protected final ClientLevel worldClient;
+    protected final boolean isSchematicView;
     protected int chunkStartX;
     protected int chunkStartZ;
     protected LevelChunk[][] chunkArray;
@@ -36,6 +39,7 @@ public class ChunkCacheSchematic implements BlockAndTintGetter, LightChunkGetter
     {
         this.world = worldIn;
         this.worldClient = clientWorld;
+        this.isSchematicView = worldIn instanceof WorldSchematic;
         int chunkX = pos.getX() >> 4;
         int chunkZ = pos.getZ() >> 4;
         this.chunkStartX = (pos.getX() - expand) >> 4;
@@ -92,7 +96,20 @@ public class ChunkCacheSchematic implements BlockAndTintGetter, LightChunkGetter
 
             if (chunk != null)
             {
-                return chunk.getBlockState(pos);
+                BlockState state = chunk.getBlockState(pos);
+
+                // Treat hidden materials as air here (not just when building this
+                // position's own geometry) so that neighboring visible blocks stop
+                // culling the face that borders the now-invisible block. Only applies
+                // to the schematic side - the client (real world) view must keep
+                // reflecting what's actually built, regardless of visibility toggles.
+                if (this.isSchematicView && state.isAir() == false &&
+                    SchematicVisibility.INSTANCE.isBlockHidden(state.getBlock()))
+                {
+                    return AIR;
+                }
+
+                return state;
             }
         }
 

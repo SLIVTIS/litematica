@@ -561,11 +561,6 @@ public class ChunkRendererSchematicVbo implements AutoCloseable
 		{
 			return;
 		}
-
-		if (!schematicHasAir && SchematicVisibility.INSTANCE.isBlockHidden(stateSchematic.getBlock()))
-		{
-			return;
-		}
 //        LOGGER.warn("[VBO] renderBlocksAndOverlay() pos [{}], stateSchematic: [{}]", pos.toShortString(), stateSchematic.toString());
 		this.getProfiler().push("render_build");
 		this.overlayColor = null;
