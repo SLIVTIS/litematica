@@ -24,6 +24,8 @@ public class GuiSchematicVisibility extends GuiListBase<VisibilityEntry, WidgetV
 {
     private final SchematicPlacement placement;
     private Mode mode = Mode.BLOCKS;
+    private SortCriteria sortCriteria = SortCriteria.COUNT;
+    private boolean sortReverse;
 
     public GuiSchematicVisibility(SchematicPlacement placement)
     {
@@ -41,6 +43,31 @@ public class GuiSchematicVisibility extends GuiListBase<VisibilityEntry, WidgetV
     public Mode getMode()
     {
         return this.mode;
+    }
+
+    public SortCriteria getSortCriteria()
+    {
+        return this.sortCriteria;
+    }
+
+    public boolean getSortInReverse()
+    {
+        return this.sortReverse;
+    }
+
+    public void setSortCriteria(SortCriteria criteria)
+    {
+        if (this.sortCriteria == criteria)
+        {
+            this.sortReverse = !this.sortReverse;
+        }
+        else
+        {
+            this.sortCriteria = criteria;
+            this.sortReverse = criteria == SortCriteria.NAME;
+        }
+
+        this.getListWidget().refreshEntries();
     }
 
     @Override
@@ -179,5 +206,11 @@ public class GuiSchematicVisibility extends GuiListBase<VisibilityEntry, WidgetV
     {
         BLOCKS,
         ENTITIES
+    }
+
+    public enum SortCriteria
+    {
+        NAME,
+        COUNT
     }
 }

@@ -922,6 +922,8 @@
   "litematica.gui.label.schematic_placement.schematic_name": "Esquema: %s",
   "litematica.gui.label.schematic_placement.sub_region_count": "Cantidad de Subregiones: %s",
   "litematica.gui.label.schematic_placement.sub_regions": "Subregiones (%s):",
+  "litematica.gui.label.schematic_visibility.name": "Nombre",
+  "litematica.gui.label.schematic_visibility.count": "Cantidad",
   "litematica.gui.label.schematic_projects.currently_open_project": "Proyecto actualmente abierto: %s",
   "litematica.gui.label.schematic_projects.origin": "Origen:",
   "litematica.gui.label.schematic_projects.project": "Proyecto:",
