@@ -134,6 +134,7 @@ public class GuiPlacementConfiguration  extends GuiListBase<SubRegionPlacement, 
 
             x += this.createButton(x, y, -1, ButtonListener.Type.OPEN_MATERIAL_LIST_GUI) + 1;
             x += this.createButton(x, y, -1, ButtonListener.Type.OPEN_VERIFIER_GUI) + 1;
+            x += this.createButton(x, y, -1, ButtonListener.Type.OPEN_VISIBILITY_GUI) + 1;
 
             type = ButtonListenerChangeMenu.ButtonType.SCHEMATIC_PLACEMENTS;
             label = StringUtils.translate(type.getLabelKey());
@@ -148,6 +149,9 @@ public class GuiPlacementConfiguration  extends GuiListBase<SubRegionPlacement, 
             y += 21;
 
             this.createButton(x, y, width, ButtonListener.Type.OPEN_VERIFIER_GUI);
+            y += 21;
+
+            this.createButton(x, y, width, ButtonListener.Type.OPEN_VISIBILITY_GUI);
             y += 32;
 
             type = ButtonListenerChangeMenu.ButtonType.SCHEMATIC_PLACEMENTS;
@@ -444,6 +448,14 @@ public class GuiPlacementConfiguration  extends GuiListBase<SubRegionPlacement, 
                     GuiBase.openGui(gui);
                     break;
                 }
+
+                case OPEN_VISIBILITY_GUI:
+                {
+                    GuiSchematicVisibility gui = new GuiSchematicVisibility(this.placement);
+                    gui.setParent(this.parent);
+                    GuiBase.openGui(gui);
+                    break;
+                }
             }
 
             this.parent.initGui(); // Re-create buttons/text fields
@@ -467,7 +479,8 @@ public class GuiPlacementConfiguration  extends GuiListBase<SubRegionPlacement, 
             TOGGLE_ALL_REGIONS_OFF  ("litematica.gui.button.schematic_placement.toggle_all_off"),
             RESET_SUB_REGIONS       (""),
             OPEN_VERIFIER_GUI       ("litematica.gui.button.schematic_verifier"),
-            OPEN_MATERIAL_LIST_GUI  ("litematica.gui.button.material_list");
+            OPEN_MATERIAL_LIST_GUI  ("litematica.gui.button.material_list"),
+            OPEN_VISIBILITY_GUI     ("litematica.gui.button.schematic_visibility");
 
             private final String translationKey;
             @Nullable
