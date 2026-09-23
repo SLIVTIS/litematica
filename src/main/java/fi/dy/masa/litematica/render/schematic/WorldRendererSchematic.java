@@ -1272,6 +1272,11 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
 //                                            entityTmp.getZ()
 //                    );
 
+                    if (SchematicVisibility.INSTANCE.isEntityTypeHidden(entityTmp.getType()))
+                    {
+                        continue;
+                    }
+
                     if ((this.renderedEntities.containsKey(entityTmp.position()) && this.renderedEntities.get(entityTmp.position()).equals(entityTmp.getUUID())) ||
                         !layerRange.isPositionWithinRange(MathUtils.floor(entityTmp.getX()), MathUtils.floor(entityTmp.getY()), MathUtils.floor(entityTmp.getZ())))
                     {
