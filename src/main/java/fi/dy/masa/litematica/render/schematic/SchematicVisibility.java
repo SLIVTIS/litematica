@@ -16,8 +16,8 @@ import fi.dy.masa.litematica.config.Configs;
 /**
  * Global, session-persisted registry of which schematic ghost-rendering
  * materials (Blocks) and entity types are currently hidden from view.
- * This only affects rendering - it has no effect on placement/pasting,
- * the Material List, or the schematic verifier.
+ * Hidden blocks are excluded from schematic pick-block and Easy Place as well as rendering.
+ * This does not change schematic data, pasting, the Material List, or the schematic verifier.
  */
 public class SchematicVisibility
 {

@@ -40,6 +40,7 @@ import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.config.Hotkeys;
 import fi.dy.masa.litematica.data.DataManager;
 import fi.dy.masa.litematica.materials.MaterialCache;
+import fi.dy.masa.litematica.render.schematic.SchematicVisibility;
 import fi.dy.masa.litematica.mixin.block.IMixinWallMountedBlock;
 import fi.dy.masa.litematica.schematic.placement.SchematicPlacementManager;
 import fi.dy.masa.litematica.tool.ToolMode;
@@ -445,11 +446,11 @@ public class EasyPlaceUtils
 	    if (Configs.Generic.EASY_PLACE_FIRST.getBooleanValue())
 	    {
 		    boolean targetFluids = Configs.InfoOverlays.INFO_OVERLAYS_TARGET_FLUIDS.getBooleanValue();
-		    traceWrapper = RayTraceUtils.getGenericTrace(world, entity, reach, true, targetFluids, false);
+		    traceWrapper = RayTraceUtils.getGenericTrace(world, entity, reach, true, targetFluids, false, true);
 	    }
 		else
 	    {
-		    traceWrapper = RayTraceUtils.getFurthestSchematicWorldTraceBeforeVanilla(mc.level, mc.player, reach);
+		    traceWrapper = RayTraceUtils.getFurthestSchematicWorldTraceBeforeVanilla(mc.level, mc.player, reach, true);
 
 		    if (traceWrapper == null && placementRestrictionInEffect())
 		    {
@@ -473,6 +474,13 @@ public class EasyPlaceUtils
 		final BlockPos targetBlockPos = targetPosition.getBlockPos();
 		Level schematicWorld = SchematicWorldHandler.getSchematicWorld();
 		BlockState stateSchematic = schematicWorld.getBlockState(targetBlockPos);
+
+		if (SchematicVisibility.INSTANCE.isBlockHidden(stateSchematic.getBlock()))
+		{
+			// Consume the action so vanilla placement cannot act on this hidden target.
+			return InteractionResult.FAIL;
+		}
+
 		BlockState stateClient = world.getBlockState(targetBlockPos);
 		ItemStack requiredStack = MaterialCache.getInstance().getRequiredBuildItemForState(stateSchematic, schematicWorld, targetBlockPos);
 

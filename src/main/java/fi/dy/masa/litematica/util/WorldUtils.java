@@ -55,6 +55,7 @@ import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.config.Hotkeys;
 import fi.dy.masa.litematica.data.DataManager;
 import fi.dy.masa.litematica.materials.MaterialCache;
+import fi.dy.masa.litematica.render.schematic.SchematicVisibility;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic;
 import fi.dy.masa.litematica.schematic.SchematicMetadata;
 import fi.dy.masa.litematica.schematic.SchematicaSchematic;
@@ -592,31 +593,59 @@ public class WorldUtils
      */
     public static boolean doSchematicWorldPickBlock(boolean closest, Minecraft mc)
     {
-        BlockPos pos;
-
         SchematicPickBlockEventHandler.getInstance().resetCancelled();
 
-		if (SchematicPickBlockEventHandler.getInstance().onSchematicPickBlockStart(closest))
-		{
-			return true;
-		}
+        BlockPos pos;
 
         if (closest)
         {
-            pos = RayTraceUtils.getSchematicWorldTraceIfClosestNoFluids(mc.level, mc.player, getValidBlockRange(mc));
+            pos = RayTraceUtils.getSchematicWorldTraceIfClosestNoFluids(mc.level, mc.player, getValidBlockRange(mc), true);
         }
         else
         {
-            pos = RayTraceUtils.getFurthestSchematicWorldBlockBeforeVanilla(mc.level, mc.player, getValidBlockRange(mc), true);
+            pos = RayTraceUtils.getFurthestSchematicWorldBlockBeforeVanilla(mc.level, mc.player, getValidBlockRange(mc), true, true);
+        }
+
+        Level world = SchematicWorldHandler.getSchematicWorld();
+
+        if (pos != null && world != null)
+        {
+            BlockState state = world.getBlockState(pos);
+
+            if (SchematicVisibility.INSTANCE.isBlockHidden(state.getBlock()))
+            {
+                // Leave normal world picking available, without invoking schematic pick callbacks.
+                return false;
+            }
+        }
+
+        if (SchematicPickBlockEventHandler.getInstance().onSchematicPickBlockStart(closest))
+        {
+            return true;
+        }
+
+        // Start callbacks may change the target or schematic; resolve both again before picking.
+        if (closest)
+        {
+            pos = RayTraceUtils.getSchematicWorldTraceIfClosestNoFluids(mc.level, mc.player, getValidBlockRange(mc), true);
+        }
+        else
+        {
+            pos = RayTraceUtils.getFurthestSchematicWorldBlockBeforeVanilla(mc.level, mc.player, getValidBlockRange(mc), true, true);
         }
 
         if (pos != null)
         {
-            Level world = SchematicWorldHandler.getSchematicWorld();
+            world = SchematicWorldHandler.getSchematicWorld();
 
 			if (world != null)
 			{
 				BlockState state = world.getBlockState(pos);
+
+				if (SchematicVisibility.INSTANCE.isBlockHidden(state.getBlock()))
+				{
+					return false;
+				}
 
 				if (SchematicPickBlockEventHandler.getInstance().onSchematicPickBlockPreGather(world, pos, state))
 				{
@@ -751,11 +780,11 @@ public class WorldUtils
         {
             // Temporary hack, using this same config here
             boolean targetFluids = Configs.InfoOverlays.INFO_OVERLAYS_TARGET_FLUIDS.getBooleanValue();
-            traceWrapper = RayTraceUtils.getGenericTrace(mc.level, mc.player, traceMaxRange, true, targetFluids, false);
+            traceWrapper = RayTraceUtils.getGenericTrace(mc.level, mc.player, traceMaxRange, true, targetFluids, false, true);
         }
         else
         {
-            traceWrapper = RayTraceUtils.getFurthestSchematicWorldTraceBeforeVanilla(mc.level, mc.player, traceMaxRange);
+            traceWrapper = RayTraceUtils.getFurthestSchematicWorldTraceBeforeVanilla(mc.level, mc.player, traceMaxRange, true);
 
             if (traceWrapper == null && EasyPlaceUtils.placementRestrictionInEffect(mc))
             {
@@ -775,6 +804,13 @@ public class WorldUtils
             BlockPos pos = trace.getBlockPos();
             Level world = SchematicWorldHandler.getSchematicWorld();
             BlockState stateSchematic = world.getBlockState(pos);
+
+            if (SchematicVisibility.INSTANCE.isBlockHidden(stateSchematic.getBlock()))
+            {
+                // Consume the action so vanilla placement cannot act on this hidden target.
+                return InteractionResult.FAIL;
+            }
+
             BlockState stateClient = mc.level.getBlockState(pos);
             ItemStack stack = MaterialCache.getInstance().getRequiredBuildItemForState(stateSchematic, world, pos);
 

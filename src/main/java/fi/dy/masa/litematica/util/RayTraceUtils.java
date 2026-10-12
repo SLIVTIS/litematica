@@ -32,6 +32,7 @@ import fi.dy.masa.malilib.util.position.LayerRange;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.config.Hotkeys;
 import fi.dy.masa.litematica.data.DataManager;
+import fi.dy.masa.litematica.render.schematic.SchematicVisibility;
 import fi.dy.masa.litematica.schematic.placement.SchematicPlacement;
 import fi.dy.masa.litematica.schematic.placement.SubRegionPlacement.RequiredEnabled;
 import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier;
@@ -333,6 +334,13 @@ public class RayTraceUtils
     public static BlockHitResult traceToSchematicWorld(Entity entity, double range,
                                                        boolean respectRenderRange, boolean targetFluids)
     {
+        return traceToSchematicWorld(entity, range, respectRenderRange, targetFluids, false);
+    }
+
+    @Nullable
+    private static BlockHitResult traceToSchematicWorld(Entity entity, double range,
+            boolean respectRenderRange, boolean targetFluids, boolean ignoreHiddenSchematicBlocks)
+    {
         boolean invert = Hotkeys.INVERT_GHOST_BLOCK_RENDER_STATE.getKeybind().isKeybindHeld();
 
         if (respectRenderRange &&
@@ -354,7 +362,7 @@ public class RayTraceUtils
         Vec3 lookEndPos = eyesPos.add(rangedLookRot);
         ClipContext.Fluid fluidMode = targetFluids ? ClipContext.Fluid.ANY : ClipContext.Fluid.NONE;
 
-        return rayTraceBlocks(world, eyesPos, lookEndPos, fluidMode, false, true, respectRenderRange, 200);
+        return rayTraceBlocks(world, eyesPos, lookEndPos, fluidMode, false, true, respectRenderRange, 200, ignoreHiddenSchematicBlocks);
     }
 
     @Nullable
@@ -374,8 +382,17 @@ public class RayTraceUtils
                                                   double range, boolean respectRenderRange,
                                                   boolean targetFluids, boolean includeVerifier)
     {
+        return getGenericTrace(worldClient, entity, range, respectRenderRange, targetFluids, includeVerifier, false);
+    }
+
+    /** Visibility filtering is opt-in for interactions, not editing/rebuild targeting. */
+    @Nullable
+    public static RayTraceWrapper getGenericTrace(Level worldClient, Entity entity,
+            double range, boolean respectRenderRange, boolean targetFluids, boolean includeVerifier,
+            boolean ignoreHiddenSchematicBlocks)
+    {
         HitResult traceClient = getRayTraceFromEntity(worldClient, entity, targetFluids, range);
-        HitResult traceSchematic = traceToSchematicWorld(entity, range, respectRenderRange, targetFluids);
+        HitResult traceSchematic = traceToSchematicWorld(entity, range, respectRenderRange, targetFluids, ignoreHiddenSchematicBlocks);
         double distClosest = -1D;
         HitType type = HitType.MISS;
         Vec3 eyesPos = entity.getEyePosition(1f);
@@ -451,7 +468,14 @@ public class RayTraceUtils
     @Nullable
     public static BlockPos getSchematicWorldTraceIfClosestNoFluids(Level worldClient, Entity entity, double range)
     {
-        RayTraceWrapper trace = getSchematicWorldTraceWrapperIfClosestNoFluids(worldClient, entity, range);
+        return getSchematicWorldTraceIfClosestNoFluids(worldClient, entity, range, false);
+    }
+
+    @Nullable
+    public static BlockPos getSchematicWorldTraceIfClosestNoFluids(Level worldClient, Entity entity, double range,
+            boolean ignoreHiddenSchematicBlocks)
+    {
+        RayTraceWrapper trace = getGenericTrace(worldClient, entity, range, true, false, false, ignoreHiddenSchematicBlocks);
         return trace != null && trace.getHitType() == HitType.SCHEMATIC_BLOCK ? trace.getBlockHitResult().getBlockPos() : null;
     }
 
@@ -473,6 +497,13 @@ public class RayTraceUtils
                                                                        Entity entity,
                                                                        double maxRange,
                                                                        boolean requireVanillaBlockBehind)
+    {
+        return getFurthestSchematicWorldBlockBeforeVanilla(worldClient, entity, maxRange, requireVanillaBlockBehind, false);
+    }
+
+    @Nullable
+    public static BlockPos getFurthestSchematicWorldBlockBeforeVanilla(Level worldClient, Entity entity,
+            double maxRange, boolean requireVanillaBlockBehind, boolean ignoreHiddenSchematicBlocks)
     {
         Vec3 eyesPos = entity.getEyePosition(1f);
         Vec3 rangedLookRot = entity.getViewVector(1f).scale(maxRange);
@@ -497,7 +528,7 @@ public class RayTraceUtils
         }
 
         Level worldSchematic = SchematicWorldHandler.getSchematicWorld();
-        List<BlockHitResult> list = rayTraceBlocksToList(worldSchematic, eyesPos, lookEndPos, ClipContext.Fluid.NONE, false, false, true, 200);
+        List<BlockHitResult> list = rayTraceBlocksToList(worldSchematic, eyesPos, lookEndPos, ClipContext.Fluid.NONE, false, false, true, 200, ignoreHiddenSchematicBlocks);
         BlockHitResult furthestTrace = null;
         double furthestDist = -1.0;
 
@@ -536,6 +567,7 @@ public class RayTraceUtils
 
             if (layerRange.isPositionWithinRange(pos) &&
                 worldSchematic.getBlockState(pos).isAir() == false &&
+                isHiddenSchematicBlock(worldSchematic, worldSchematic.getBlockState(pos), ignoreHiddenSchematicBlocks) == false &&
                 worldClient.getBlockState(pos).isAir())
             {
                 return pos;
@@ -549,6 +581,13 @@ public class RayTraceUtils
     public static RayTraceWrapper getFurthestSchematicWorldTraceBeforeVanilla(Level worldClient,
                                                                               Entity entity,
                                                                               double maxRange)
+    {
+        return getFurthestSchematicWorldTraceBeforeVanilla(worldClient, entity, maxRange, false);
+    }
+
+    @Nullable
+    public static RayTraceWrapper getFurthestSchematicWorldTraceBeforeVanilla(Level worldClient, Entity entity,
+            double maxRange, boolean ignoreHiddenSchematicBlocks)
     {
         Vec3 eyesPos = entity.getEyePosition(1f);
         Vec3 rangedLookRot = entity.getViewVector(1f).scale(maxRange);
@@ -567,7 +606,7 @@ public class RayTraceUtils
         }
 
         Level worldSchematic = SchematicWorldHandler.getSchematicWorld();
-        List<BlockHitResult> list = rayTraceBlocksToList(worldSchematic, eyesPos, lookEndPos, ClipContext.Fluid.NONE, false, false, true, 200);
+        List<BlockHitResult> list = rayTraceBlocksToList(worldSchematic, eyesPos, lookEndPos, ClipContext.Fluid.NONE, false, false, true, 200, ignoreHiddenSchematicBlocks);
         BlockHitResult furthestTrace = null;
         double furthestDist = -1.0;
 
@@ -658,6 +697,16 @@ public class RayTraceUtils
             ClipContext.Fluid fluidMode, boolean ignoreBlockWithoutBoundingBox,
             boolean returnLastUncollidableBlock, boolean respectLayerRange, int maxSteps)
     {
+        return rayTraceBlocks(world, start, end, fluidMode, ignoreBlockWithoutBoundingBox,
+                returnLastUncollidableBlock, respectLayerRange, maxSteps, false);
+    }
+
+    @Nullable
+    private static BlockHitResult rayTraceBlocks(Level world, Vec3 start, Vec3 end,
+            ClipContext.Fluid fluidMode, boolean ignoreBlockWithoutBoundingBox,
+            boolean returnLastUncollidableBlock, boolean respectLayerRange, int maxSteps,
+            boolean ignoreHiddenSchematicBlocks)
+    {
         if (Double.isNaN(start.x) || Double.isNaN(start.y) || Double.isNaN(start.z) ||
             Double.isNaN(end.x) || Double.isNaN(end.y) || Double.isNaN(end.z))
         {
@@ -670,7 +719,7 @@ public class RayTraceUtils
         BlockState blockState = world.getBlockState(data.blockPos);
         FluidState fluidState = world.getFluidState(data.blockPos);
 
-        BlockHitResult trace = traceFirstStep(data, world, blockState, fluidState, ignoreBlockWithoutBoundingBox, returnLastUncollidableBlock, respectLayerRange);
+        BlockHitResult trace = traceFirstStep(data, world, blockState, fluidState, ignoreBlockWithoutBoundingBox, returnLastUncollidableBlock, respectLayerRange, ignoreHiddenSchematicBlocks);
 
         if (trace != null)
         {
@@ -687,7 +736,7 @@ public class RayTraceUtils
             blockState = world.getBlockState(data.blockPos);
             fluidState = world.getFluidState(data.blockPos);
 
-            if (traceLoopSteps(data, world, blockState, fluidState, ignoreBlockWithoutBoundingBox, returnLastUncollidableBlock, respectLayerRange))
+            if (traceLoopSteps(data, world, blockState, fluidState, ignoreBlockWithoutBoundingBox, returnLastUncollidableBlock, respectLayerRange, ignoreHiddenSchematicBlocks))
             {
                 return data.trace;
             }
@@ -696,12 +745,24 @@ public class RayTraceUtils
         return returnLastUncollidableBlock ? data.trace : null;
     }
 
+    private static boolean isHiddenSchematicBlock(Level world, BlockState state, boolean ignoreHiddenSchematicBlocks)
+    {
+        return ignoreHiddenSchematicBlocks && world == SchematicWorldHandler.getSchematicWorld() &&
+               SchematicVisibility.INSTANCE.isBlockHidden(state.getBlock());
+    }
+
     @Nullable
     private static BlockHitResult traceFirstStep(RayTraceCalcsData data,
             Level world, BlockState blockState, FluidState fluidState,
             boolean ignoreBlockWithoutBoundingBox,
-            boolean returnLastUncollidableBlock, boolean respectLayerRange)
+            boolean returnLastUncollidableBlock, boolean respectLayerRange, boolean ignoreHiddenSchematicBlocks)
     {
+        // Reject the entire cell, including its fluid, without terminating traversal.
+        if (isHiddenSchematicBlock(world, blockState, ignoreHiddenSchematicBlocks))
+        {
+            return null;
+        }
+
         if ((respectLayerRange == false || data.range.isPositionWithinRange(data.x, data.y, data.z)) &&
             (ignoreBlockWithoutBoundingBox == false || blockState.getCollisionShape(world, data.blockPos).isEmpty() == false))
         {
@@ -736,8 +797,13 @@ public class RayTraceUtils
     private static boolean traceLoopSteps(RayTraceCalcsData data,
             Level world, BlockState blockState, FluidState fluidState,
             boolean ignoreBlockWithoutBoundingBox,
-            boolean returnLastUncollidableBlock, boolean respectLayerRange)
+            boolean returnLastUncollidableBlock, boolean respectLayerRange, boolean ignoreHiddenSchematicBlocks)
     {
+        if (isHiddenSchematicBlock(world, blockState, ignoreHiddenSchematicBlocks))
+        {
+            return false;
+        }
+
         if ((respectLayerRange == false || data.range.isPositionWithinRange(data.x, data.y, data.z)) &&
                 (ignoreBlockWithoutBoundingBox == false || blockState.getBlock() == Blocks.NETHER_PORTAL ||
                 blockState.getBlock() == Blocks.END_PORTAL || blockState.getBlock() == Blocks.END_GATEWAY ||
@@ -781,6 +847,15 @@ public class RayTraceUtils
             ClipContext.Fluid fluidMode, boolean ignoreBlockWithoutBoundingBox,
             boolean returnLastUncollidableBlock, boolean respectLayerRange, int maxSteps)
     {
+        return rayTraceBlocksToList(world, start, end, fluidMode, ignoreBlockWithoutBoundingBox,
+                returnLastUncollidableBlock, respectLayerRange, maxSteps, false);
+    }
+
+    private static List<BlockHitResult> rayTraceBlocksToList(Level world, Vec3 start, Vec3 end,
+            ClipContext.Fluid fluidMode, boolean ignoreBlockWithoutBoundingBox,
+            boolean returnLastUncollidableBlock, boolean respectLayerRange, int maxSteps,
+            boolean ignoreHiddenSchematicBlocks)
+    {
         if (Double.isNaN(start.x) || Double.isNaN(start.y) || Double.isNaN(start.z) ||
             Double.isNaN(end.x) || Double.isNaN(end.y) || Double.isNaN(end.z))
         {
@@ -793,7 +868,7 @@ public class RayTraceUtils
         BlockState blockState = world.getBlockState(data.blockPos);
         FluidState fluidState = world.getFluidState(data.blockPos);
 
-        BlockHitResult trace = traceFirstStep(data, world, blockState, fluidState, ignoreBlockWithoutBoundingBox, returnLastUncollidableBlock, respectLayerRange);
+        BlockHitResult trace = traceFirstStep(data, world, blockState, fluidState, ignoreBlockWithoutBoundingBox, returnLastUncollidableBlock, respectLayerRange, ignoreHiddenSchematicBlocks);
         List<BlockHitResult> hits = new ArrayList<>();
 
         if (trace != null)
@@ -816,7 +891,7 @@ public class RayTraceUtils
             blockState = world.getBlockState(data.blockPos);
             fluidState = world.getFluidState(data.blockPos);
 
-            if (traceLoopSteps(data, world, blockState, fluidState, ignoreBlockWithoutBoundingBox, returnLastUncollidableBlock, respectLayerRange))
+            if (traceLoopSteps(data, world, blockState, fluidState, ignoreBlockWithoutBoundingBox, returnLastUncollidableBlock, respectLayerRange, ignoreHiddenSchematicBlocks))
             {
                 hits.add(data.trace);
             }
