@@ -29,6 +29,7 @@ import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.debug.DebugValueAccess;
 import net.minecraft.util.profiling.ProfilerFiller;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
@@ -57,6 +58,12 @@ public interface IWorldSchematicRenderer
 	void markNeedsUpdate();
 
 	boolean hasWorld();
+
+	/** Read-only membership in a current entity render snapshot; unavailable renderers fail closed. */
+	default boolean isEntityRendered(Entity entity)
+	{
+		return false;
+	}
 
 	String getDebugInfoRenders();
 

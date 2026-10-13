@@ -242,6 +242,12 @@ public class InventoryUtils
     public static void schematicWorldPickBlock(ItemStack stack, BlockPos pos,
                                                Level schematicWorld, Minecraft mc)
     {
+        schematicWorldPickBlock(stack, pos, schematicWorld, mc, true);
+    }
+
+    public static void schematicWorldPickBlock(ItemStack stack, BlockPos pos,
+                                               Level schematicWorld, Minecraft mc, boolean copyBlockEntityNbt)
+    {
         if (mc.player == null || mc.gameMode == null || mc.level == null)
         {
             return;
@@ -258,7 +264,7 @@ public class InventoryUtils
                 // The creative mode pick block with NBT only works correctly
                 // if the server world doesn't have a TileEntity in that position.
                 // Otherwise it would try to write whatever that TE is into the picked ItemStack.
-                if (GuiBase.isCtrlDown() && te != null && mc.level.isEmptyBlock(pos))
+                if (copyBlockEntityNbt && GuiBase.isCtrlDown() && te != null && mc.level.isEmptyBlock(pos))
                 {
                     //te.setStackNbt(stack, schematicWorld.getRegistryManager());
                     BlockUtils.setStackNbt(stack, te, schematicWorld.registryAccess());
@@ -293,6 +299,262 @@ public class InventoryUtils
                 //return shouldPick == false || canPick;
             }
         }
+    }
+
+    /** Atomic empty-slot-only plan. Existing matching counts satisfy requirements without copying them. */
+    public static Optional<List<ItemStack>> planDecorativeDelivery(List<ItemStack> inventory, List<ItemStack> materials)
+    {
+
+        List<ItemStack> required = new ArrayList<>();
+        for (ItemStack material : materials)
+        {
+            if (material.isEmpty()) continue;
+            ItemStack matching = null;
+            for (ItemStack stack : required)
+            {
+                if (ItemStack.isSameItemSameComponents(stack, material))
+                {
+                    matching = stack;
+                    break;
+                }
+            }
+            if (matching == null) required.add(material.copy());
+            else matching.grow(material.getCount());
+        }
+
+        List<ItemStack> result = new ArrayList<>();
+        for (ItemStack stack : inventory) result.add(stack.copy());
+        for (ItemStack material : required)
+        {
+            int missing = material.getCount();
+            for (ItemStack stack : inventory)
+            {
+                if (ItemStack.isSameItemSameComponents(stack, material)) missing -= stack.getCount();
+            }
+            for (int slot = 0; slot < result.size() && missing > 0; ++slot)
+            {
+                if (result.get(slot).isEmpty())
+                {
+                    int count = Math.min(missing, material.getMaxStackSize());
+                    result.set(slot, material.copyWithCount(count));
+                    missing -= count;
+                }
+            }
+            if (missing > 0) return Optional.empty();
+        }
+        return Optional.of(result);
+    }
+
+    public record DecorativePickPlan(List<ItemStack> items, int selectedSlot) {}
+
+    public static Optional<DecorativePickPlan> planDecorativePick(List<ItemStack> inventory,
+            List<ItemStack> materials, List<Integer> pickSlots, int selectedSlot, List<Integer> protectedSlots)
+    {
+        List<Integer> slots = pickSlots.stream().filter(s -> s >= 0 && s < 9 && s < inventory.size()).distinct().toList();
+        if (slots.isEmpty() || materials.isEmpty() || materials.get(0).isEmpty() || inventory.size() > 36) return Optional.empty();
+
+        List<ItemStack> required = new ArrayList<>();
+        for (ItemStack material : materials)
+        {
+            if (material.isEmpty()) continue;
+            ItemStack matching = required.stream().filter(s -> ItemStack.isSameItemSameComponents(s, material)).findFirst().orElse(null);
+            long count = material.getCount() + (matching == null ? 0L : matching.getCount());
+            // No requirement can exceed nine full stacks. Bound counts before
+            // aggregation, avoiding overflow and unbounded stack-placement loops.
+            if (count > 9L * material.getMaxStackSize()) return Optional.empty();
+            if (matching == null) required.add(material.copy());
+            else matching.setCount((int) count);
+        }
+
+        List<Integer> available = new ArrayList<>(slots);
+        available.sort(java.util.Comparator.<Integer>comparingInt(s -> inventory.get(s).isEmpty() ? 0 : 1)
+                .thenComparingInt(s -> protectedSlots.contains(s) ? 1 : 0)
+                .thenComparingInt(s -> s == selectedSlot ? 0 : 1));
+        List<ItemStack> targets = new ArrayList<>();
+        for (int slot = 0; slot < inventory.size(); ++slot) targets.add(ItemStack.EMPTY);
+        List<Integer> missing = new ArrayList<>();
+        for (ItemStack material : required)
+        {
+            int count = material.getCount();
+            for (int slot = 0; slot < Math.min(9, inventory.size()); ++slot)
+                if (!slots.contains(slot) && ItemStack.isSameItemSameComponents(inventory.get(slot), material))
+                    count -= inventory.get(slot).getCount();
+            // Reserve matching configured stacks for ALL materials before allocating
+            // replacements, so a supplement cannot overwrite the base or another supplement.
+            for (int slot : slots)
+            {
+                if (count <= 0) break;
+                if (available.contains(slot) && ItemStack.isSameItemSameComponents(inventory.get(slot), material))
+                {
+                    int size = Math.min(count, material.getMaxStackSize());
+                    targets.set(slot, material.copyWithCount(Math.max(size, inventory.get(slot).getCount())));
+                    available.remove(Integer.valueOf(slot));
+                    count -= targets.get(slot).getCount();
+                }
+            }
+            missing.add(Math.max(0, count));
+        }
+        for (int index = 0; index < required.size(); ++index)
+        {
+            ItemStack material = required.get(index);
+            int count = missing.get(index);
+            while (count > 0)
+            {
+                if (available.isEmpty()) return Optional.empty();
+                int slot = available.removeFirst();
+                int size = Math.min(count, material.getMaxStackSize());
+                targets.set(slot, material.copyWithCount(size));
+                count -= size;
+            }
+        }
+
+        List<ItemStack> after = new ArrayList<>();
+        List<ItemStack> displaced = new ArrayList<>();
+        for (int slot = 0; slot < inventory.size(); ++slot)
+        {
+            after.add(inventory.get(slot).copy());
+            if (!targets.get(slot).isEmpty())
+            {
+                displaced.add(after.get(slot));
+                after.set(slot, ItemStack.EMPTY);
+            }
+        }
+        for (int slot : slots)
+        {
+            ItemStack target = targets.get(slot);
+            if (target.isEmpty()) continue;
+            int needed = target.getCount();
+            for (ItemStack source : displaced) needed = consumeMatching(source, target, needed);
+            // Main inventory contributes only by moving existing matching items;
+            // it never satisfies hotbar availability by itself and never receives grants.
+            for (int source = 0; source < after.size() && needed > 0; ++source)
+                if (source >= 9 || (slots.contains(source) && targets.get(source).isEmpty()))
+                    needed = consumeMatching(after.get(source), target, needed);
+            after.set(slot, target.copy()); // Only the remaining deficit is a creative grant.
+        }
+        for (ItemStack stack : displaced)
+        {
+            if (stack.isEmpty()) continue;
+            // Freed main source slots make safe swaps possible even with a full
+            // inventory. Merge/relocate before using authorized configured deletion.
+            relocateDisplaced(after, stack, slots, targets);
+        }
+        if (!preservesRequiredCounts(inventory, after, materials)) return Optional.empty();
+        for (ItemStack material : required)
+        {
+            int count = 0;
+            for (int slot = 0; slot < Math.min(9, after.size()); ++slot)
+                if (ItemStack.isSameItemSameComponents(after.get(slot), material)) count += after.get(slot).getCount();
+            if (count < material.getCount()) return Optional.empty();
+        }
+        for (int slot = 0; slot < Math.min(9, after.size()); ++slot)
+            if (ItemStack.isSameItemSameComponents(after.get(slot), materials.getFirst()))
+                return Optional.of(new DecorativePickPlan(after, slot));
+        return Optional.empty();
+    }
+
+    private static int consumeMatching(ItemStack source, ItemStack target, int needed)
+    {
+        if (needed > 0 && ItemStack.isSameItemSameComponents(source, target))
+        {
+            int count = Math.min(needed, source.getCount());
+            source.shrink(count);
+            needed -= count;
+        }
+        return needed;
+    }
+
+    private static void relocateDisplaced(List<ItemStack> after, ItemStack displaced,
+            List<Integer> slots, List<ItemStack> targets)
+    {
+        for (int slot = 9; slot < after.size() && !displaced.isEmpty(); ++slot)
+        {
+            ItemStack stack = after.get(slot);
+            if (ItemStack.isSameItemSameComponents(stack, displaced))
+            {
+                int count = Math.min(displaced.getCount(), Math.max(0, stack.getMaxStackSize() - stack.getCount()));
+                stack.grow(count);
+                displaced.shrink(count);
+            }
+        }
+        // Configured matching stacks may also absorb displaced surplus without
+        // losing any placed requirement. Nonconfigured hotbar matches stay read-only.
+        for (int slot : slots)
+        {
+            ItemStack stack = after.get(slot);
+            if (!displaced.isEmpty() && ItemStack.isSameItemSameComponents(stack, displaced))
+            {
+                int count = Math.min(displaced.getCount(), Math.max(0, stack.getMaxStackSize() - stack.getCount()));
+                stack.grow(count);
+                displaced.shrink(count);
+            }
+        }
+        for (int slot = 9; slot < after.size() && !displaced.isEmpty(); ++slot)
+            if (after.get(slot).isEmpty())
+            {
+                after.set(slot, displaced.copy());
+                displaced.setCount(0);
+            }
+        for (int slot : slots)
+            if (!displaced.isEmpty() && targets.get(slot).isEmpty() && after.get(slot).isEmpty())
+            {
+                after.set(slot, displaced.copy());
+                displaced.setCount(0);
+            }
+    }
+
+    private static boolean preservesRequiredCounts(List<ItemStack> before, List<ItemStack> after, List<ItemStack> materials)
+    {
+        for (ItemStack material : materials)
+        {
+            if (material.isEmpty()) continue;
+            int required = 0, original = 0, remaining = 0;
+            for (ItemStack stack : materials)
+                if (ItemStack.isSameItemSameComponents(stack, material)) required += stack.getCount();
+            for (ItemStack stack : before)
+                if (ItemStack.isSameItemSameComponents(stack, material)) original += stack.getCount();
+            for (ItemStack stack : after)
+                if (ItemStack.isSameItemSameComponents(stack, material)) remaining += stack.getCount();
+            if (remaining < Math.min(original, required)) return false;
+        }
+        return true;
+    }
+
+    /** Creative decoration delivery; only configured hotbar contents may be discarded. */
+    public static void pickDecorativeMaterials(List<ItemStack> materials, Minecraft mc)
+    {
+        if (mc.player == null || mc.gameMode == null || mc.level == null ||
+            !EntityUtils.isCreativeMode(mc.player) || materials.isEmpty() || materials.get(0).isEmpty()) return;
+
+        Inventory inventory = mc.player.getInventory();
+        List<ItemStack> before = inventory.getNonEquipmentItems();
+        if (PICK_BLOCKABLE_SLOTS.isEmpty())
+        {
+            InfoUtils.showGuiOrInGameMessage(MessageType.WARNING, "litematica.message.warn.pickblock.no_valid_slots_configured");
+            return;
+        }
+        List<Integer> protectedSlots = new ArrayList<>();
+        for (int slot : PICK_BLOCKABLE_SLOTS)
+            if (Inventory.isHotbarSlot(slot) && !canPickToSlot(inventory, slot)) protectedSlots.add(slot);
+        Optional<DecorativePickPlan> planned = planDecorativePick(before, materials,
+                PICK_BLOCKABLE_SLOTS, inventory.getSelectedSlot(), protectedSlots);
+        if (planned.isEmpty())
+        {
+            InfoUtils.showGuiOrInGameMessage(MessageType.WARNING, "litematica.message.warn.pickblock.no_suitable_slot_found");
+            return;
+        }
+        List<ItemStack> after = planned.get().items();
+        int targetSlot = planned.get().selectedSlot();
+        for (int slot = 0; slot < after.size(); ++slot)
+        {
+            if (!ItemStack.matches(before.get(slot), after.get(slot)))
+            {
+                inventory.setItem(slot, after.get(slot));
+                mc.gameMode.handleCreativeModeItemAdd(after.get(slot), Inventory.isHotbarSlot(slot) ? 36 + slot : slot);
+            }
+        }
+        inventory.setSelectedSlot(targetSlot);
+        EasyPlaceUtils.setEasyPlaceLastPickBlockTime();
     }
 
     private static boolean canPickToSlot(Inventory inventory, int slotNum)

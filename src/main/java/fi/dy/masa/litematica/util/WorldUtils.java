@@ -55,6 +55,7 @@ import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.config.Hotkeys;
 import fi.dy.masa.litematica.data.DataManager;
 import fi.dy.masa.litematica.materials.MaterialCache;
+import fi.dy.masa.litematica.materials.DecorativePickMaterials;
 import fi.dy.masa.litematica.render.schematic.SchematicVisibility;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic;
 import fi.dy.masa.litematica.schematic.SchematicMetadata;
@@ -634,6 +635,34 @@ public class WorldUtils
             pos = RayTraceUtils.getFurthestSchematicWorldBlockBeforeVanilla(mc.level, mc.player, getValidBlockRange(mc), true, true);
         }
 
+        net.minecraft.world.phys.EntityHitResult decorativeEntity = RayTraceUtils.getDecorativeEntityPick(
+                mc.level, mc.player, getValidBlockRange(mc), closest, pos);
+        if (decorativeEntity != null)
+        {
+            // Global start cancellation has already run and the target was refreshed.
+            // Block pre-gather/pre-pick/slot callbacks cannot represent an entity safely.
+            // Fail closed on global redirects, including a retained legacy slot handler.
+            if (SchematicPickBlockEventHandler.getInstance().hasPickStack() ||
+                SchematicPickBlockEventHandler.getInstance().hasSlotHandler()) return true;
+
+            world = SchematicWorldHandler.getSchematicWorld();
+            if (world == null) return false;
+            List<ItemStack> materials = DecorativePickMaterials.collect(decorativeEntity.getEntity());
+            if (materials.isEmpty()) return false;
+            if (EntityUtils.isCreativeMode(mc.player))
+            {
+                InventoryUtils.pickDecorativeMaterials(materials, mc);
+            }
+            else
+            {
+                // Reuse survival's existing selection/shulker path; no block NBT or item grants.
+                InventoryUtils.schematicWorldPickBlock(materials.get(0), decorativeEntity.getEntity().blockPosition(),
+                        world, mc, false);
+            }
+            SchematicPickBlockEventHandler.getInstance().onSchematicPickBlockSuccess();
+            return true;
+        }
+
         if (pos != null)
         {
             world = SchematicWorldHandler.getSchematicWorld();
@@ -663,10 +692,20 @@ public class WorldUtils
 					stack = MaterialCache.getInstance().getRequiredBuildItemForState(state, world, pos);
 				}
 
+                boolean stackOverridden = SchematicPickBlockEventHandler.getInstance().hasPickStack();
+                ItemStack gatheredStack = stack.copy();
+
 				if (SchematicPickBlockEventHandler.getInstance().onSchematicPickBlockPrePick(world, pos, state, stack))
 				{
 					return true;
 				}
+
+                if (SchematicPickBlockEventHandler.getInstance().hasPickStack())
+                {
+                    stack = SchematicPickBlockEventHandler.getInstance().getPickStack();
+                    stackOverridden = true;
+                }
+                stackOverridden |= !ItemStack.matches(gatheredStack, stack);
 
 				if (SchematicPickBlockEventHandler.getInstance().hasSlotHandler())
 				{
@@ -677,7 +716,28 @@ public class WorldUtils
 					}
 				}
 
-				InventoryUtils.schematicWorldPickBlock(stack, pos, world, mc);
+                // The legacy slot API also returns false for SUCCESS. Never supplement a
+                // custom handler: it may already have delivered items before falling through.
+                stackOverridden |= SchematicPickBlockEventHandler.getInstance().hasSlotHandler();
+                if (SchematicPickBlockEventHandler.getInstance().hasPickStack())
+                {
+                    stack = SchematicPickBlockEventHandler.getInstance().getPickStack();
+                    stackOverridden = true;
+                }
+                stackOverridden |= !ItemStack.matches(gatheredStack, stack);
+
+                // Survival and callback overrides keep the legacy single-stack pick semantics.
+                // Decorative Ctrl-pick uses plain materials, never an embedded block inventory.
+                if (!stackOverridden && EntityUtils.isCreativeMode(mc.player) &&
+                    DecorativePickMaterials.isDecorative(state))
+                {
+                    InventoryUtils.pickDecorativeMaterials(
+                            DecorativePickMaterials.collect(state, world.getBlockEntity(pos), stack), mc);
+                }
+                else
+                {
+                    InventoryUtils.schematicWorldPickBlock(stack, pos, world, mc, !DecorativePickMaterials.isDecorative(state));
+                }
 				SchematicPickBlockEventHandler.getInstance().onSchematicPickBlockSuccess();
 
 				return true;

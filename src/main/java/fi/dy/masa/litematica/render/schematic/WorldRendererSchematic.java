@@ -65,6 +65,7 @@ import net.minecraft.world.entity.animal.frog.Tadpole;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragonPart;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -124,6 +125,10 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
     private final IChunkRendererFactory renderChunkFactory;
 
     private final HashMap<Vec3, UUID> renderedEntities;
+    private Level renderedEntityClientWorld;
+    private long renderedEntityTick;
+    private Vec3 renderedEntityCameraPosition;
+    private Quaternionf renderedEntityCameraRotation;
     private int renderDistanceChunks;
     private int renderEntitiesStartupCounter;
     private int countEntitiesTotal;
@@ -307,6 +312,7 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
     public void setWorldAndLoadRenderers(@Nullable WorldSchematic worldSchematic)
     {
 //        LOGGER.error("[WorldRenderer] setWorldAndLoadRenderers()");
+        this.clearRenderedEntityMembership();
         this.lastCameraChunkUpdateX = Double.MIN_VALUE;
         this.lastCameraChunkUpdateY = Double.MIN_VALUE;
         this.lastCameraChunkUpdateZ = Double.MIN_VALUE;
@@ -359,6 +365,7 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
     @Override
     public void loadRenderers(@Nullable ProfilerFiller profiler)
     {
+        this.clearRenderedEntityMembership();
         if (this.hasWorld())
         {
 //            LOGGER.warn("[WorldRenderer] loadRenderers()");
@@ -406,6 +413,7 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
     protected void stopChunkUpdates(ProfilerFiller profiler)
     {
 //        LOGGER.warn("[WorldRenderer] stopChunkUpdates()");
+        this.clearRenderedEntityMembership();
         if (!this.chunksToUpdate.isEmpty())
         {
             this.chunksToUpdate.forEach(ChunkRendererSchematicVbo::deleteGlResources);
@@ -867,6 +875,8 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
 	public void clearWorldRenderStates()
 	{
 		this.getSchematicRenderState().clear();
+        // Also called at normal frame end: retain the read-only membership snapshot
+        // for input handling between frames. World/reload paths invalidate it explicitly.
 	}
 
     @Override
@@ -1213,10 +1223,35 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
         return parts;
     }
 
+    /** No mutable render collection escapes this boundary. A changed view/tick needs a new snapshot. */
+    @Override
+    public boolean isEntityRendered(Entity entity)
+    {
+        if (this.world == null || entity.level() != this.world || entity.isRemoved() ||
+            this.mc.level == null || this.renderedEntityClientWorld != this.mc.level ||
+            this.renderedEntityTick != this.mc.level.getGameTime() ||
+            this.renderedEntityCameraPosition == null || this.renderedEntityCameraRotation == null) return false;
+
+        Camera camera = this.mc.gameRenderer.mainCamera();
+        return this.renderedEntityCameraPosition.equals(camera.position()) &&
+               this.renderedEntityCameraRotation.equals(camera.rotation()) &&
+               entity.getUUID().equals(this.renderedEntities.get(entity.position()));
+    }
+
+    private void clearRenderedEntityMembership()
+    {
+        this.renderedEntities.clear();
+        this.renderedEntityClientWorld = null;
+        this.renderedEntityCameraPosition = null;
+        this.renderedEntityCameraRotation = null;
+    }
+
     @Override
     public void prepareEntities(Camera camera, Frustum frustum, LevelRenderState renderStates, DeltaTracker tickCounter, ProfilerFiller profiler)
     {
 //        LOGGER.warn("[WorldRenderer] prepareEntities()");
+        this.clearRenderedEntityMembership();
+        if (this.world == null || this.mc.level == null || frustum == null) return;
         this.profiler = profiler;
 
         if (this.renderEntitiesStartupCounter > 0)
@@ -1389,6 +1424,11 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
                 }
             }
 
+            // Publish freshness only after a complete preparation pass (not startup/failed passes).
+            this.renderedEntityClientWorld = this.mc.level;
+            this.renderedEntityTick = this.mc.level.getGameTime();
+            this.renderedEntityCameraPosition = camera.position();
+            this.renderedEntityCameraRotation = new Quaternionf(camera.rotation());
             profiler.pop();
         }
     }

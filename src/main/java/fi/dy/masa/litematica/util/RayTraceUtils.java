@@ -20,6 +20,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -32,6 +33,9 @@ import fi.dy.masa.malilib.util.position.LayerRange;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.config.Hotkeys;
 import fi.dy.masa.litematica.data.DataManager;
+import fi.dy.masa.litematica.materials.DecorativePickMaterials;
+import fi.dy.masa.litematica.render.IWorldSchematicRenderer;
+import fi.dy.masa.litematica.render.LitematicaRenderer;
 import fi.dy.masa.litematica.render.schematic.SchematicVisibility;
 import fi.dy.masa.litematica.schematic.placement.SchematicPlacement;
 import fi.dy.masa.litematica.schematic.placement.SubRegionPlacement.RequiredEnabled;
@@ -632,6 +636,89 @@ public class RayTraceUtils
         }
 
         return furthestTrace != null ? new RayTraceWrapper(HitType.SCHEMATIC_BLOCK, furthestTrace) : null;
+    }
+
+    /** Entity supplement for pick only. The legacy block position remains authoritative on ties/fallbacks. */
+    @Nullable
+    public static EntityHitResult getDecorativeEntityPick(Level clientWorld, Entity player, double range,
+            boolean closest, @Nullable BlockPos blockTarget)
+    {
+        Level schematic = SchematicWorldHandler.getSchematicWorld();
+        boolean invert = Hotkeys.INVERT_GHOST_BLOCK_RENDER_STATE.getKeybind().isKeybindHeld();
+        if (schematic == null || !Configs.Visuals.ENABLE_RENDERING.getBooleanValue() ||
+            Configs.Visuals.ENABLE_SCHEMATIC_RENDERING.getBooleanValue() == invert ||
+            !Configs.Visuals.RENDER_SCHEMATIC_ENTITIES.getBooleanValue()) return null;
+
+        Vec3 start = player.getEyePosition(1f);
+        Vec3 end = start.add(player.getViewVector(1f).scale(range));
+        AABB search = new AABB(start, end).inflate(1);
+        BlockHitResult realBlock = rayTraceBlocks(clientWorld, start, end, ClipContext.Fluid.NONE,
+                false, false, false, 1000);
+        boolean hasRealBlock = realBlock != null && realBlock.getType() == HitResult.Type.BLOCK;
+        // Pick-last has always required a real block behind the schematic target.
+        if (!closest && !hasRealBlock) return null;
+        double realDistance = hasRealBlock ? start.distanceToSqr(realBlock.getLocation()) : -1;
+        for (Entity realEntity : clientWorld.getEntities(player, search))
+        {
+            double distance = decorativeHitDistance(realEntity.getBoundingBox(), start, end);
+            if (distance >= 0 && (realDistance < 0 || distance < realDistance)) realDistance = distance;
+        }
+
+        double selectedDistance = -1;
+        if (blockTarget != null)
+        {
+            for (BlockHitResult hit : rayTraceBlocksToList(schematic, start, end, ClipContext.Fluid.NONE,
+                    false, false, true, 200, true))
+            {
+                if (hit.getBlockPos().equals(blockTarget))
+                {
+                    selectedDistance = start.distanceToSqr(hit.getLocation());
+                    break;
+                }
+            }
+            // Non-collidable adjacent-block fallback has no genuine ray hit to compare.
+            // Preserve that legacy selection rather than invent a hit distance.
+            if (selectedDistance < 0) return null;
+        }
+
+        IWorldSchematicRenderer renderer = LitematicaRenderer.getInstance().getWorldRenderer();
+        EntityHitResult selected = null;
+        for (Entity candidate : schematic.getEntities(player, search))
+        {
+            BlockPos pos = candidate.blockPosition();
+            if (!DecorativePickMaterials.isDecorative(candidate) || candidate.isRemoved() ||
+                SchematicVisibility.INSTANCE.isEntityTypeHidden(candidate.getType()) ||
+                !DataManager.getRenderLayerRange().isPositionWithinRange(pos) ||
+                !DataManager.getSchematicPlacementManager().checkIfChunkShouldRender(pos.getX() >> 4, pos.getZ() >> 4) ||
+                !candidate.shouldRenderAtSqrDistance(start.distanceToSqr(candidate.position()))) continue;
+
+            double distance = decorativeHitDistance(candidate.getBoundingBox(), start, end);
+            if (isBetterDecorativeHit(distance, selectedDistance, realDistance, closest,
+                    renderer.isEntityRendered(candidate)))
+            {
+                Vec3 location = distance == 0 ? start : candidate.getBoundingBox().clip(start, end).orElseThrow();
+                selected = new EntityHitResult(candidate, location);
+                selectedDistance = distance;
+            }
+        }
+        return selected;
+    }
+
+    static double decorativeHitDistance(AABB bounds, Vec3 start, Vec3 end)
+    {
+        if (bounds.contains(start)) return 0;
+        return bounds.clip(start, end).map(start::distanceToSqr).orElse(-1D);
+    }
+
+    static boolean isBetterDecorativeHit(double distance, double selected, double real, boolean closest, boolean rendered)
+    {
+        return rendered && isBetterDecorativeHit(distance, selected, real, closest);
+    }
+
+    static boolean isBetterDecorativeHit(double distance, double selected, double real, boolean closest)
+    {
+        return distance >= 0 && (real < 0 || distance < real) &&
+                (selected < 0 || (closest ? distance < selected : distance > selected));
     }
 
     @Nonnull

@@ -111,6 +111,28 @@ jar {
 	}
 }
 
+// Standalone assertion tests avoid adding a test-framework dependency.
+tasks.register('decorativeMaterialsTest', JavaExec) {
+	dependsOn testClasses
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = 'fi.dy.masa.litematica.materials.DecorativePickMaterialsTest'
+}
+tasks.register('decorativeInventoryTest', JavaExec) {
+	dependsOn testClasses
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = 'fi.dy.masa.litematica.util.DecorativePickInventoryTest'
+}
+tasks.register('decorativeRayTraceTest', JavaExec) {
+	dependsOn testClasses
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = 'fi.dy.masa.litematica.util.DecorativePickRayTraceTest'
+}
+test {
+	dependsOn decorativeMaterialsTest, decorativeInventoryTest, decorativeRayTraceTest
+	// Assertions run in the JavaExec tasks above, not a framework discovery engine.
+	failOnNoDiscoveredTests = false
+}
+
 tasks.publish.dependsOn build
 publishing {
 	publications {
